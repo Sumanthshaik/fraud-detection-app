@@ -1,13 +1,9 @@
 import streamlit as st
-import requests
-import random
 import pandas as pd
 from datetime import datetime
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Enterprise Fraud System", page_icon="💳", layout="wide")
-
-API_URL = "https://o32jgbufsl.execute-api.eu-north-1.amazonaws.com/prod/predict"
 
 # ================= SESSION =================
 if "users" not in st.session_state:
@@ -22,22 +18,31 @@ if "page" not in st.session_state:
 if "history" not in st.session_state:
     st.session_state.history = []
 
-if "bulk_result" not in st.session_state:
-    st.session_state.bulk_result = None
+if "accounts" not in st.session_state:
+    st.session_state.accounts = {}
 
-if "report_data" not in st.session_state:
-    st.session_state.report_data = []   # ✅ GLOBAL REPORT
-
-# ================= UI =================
+# ================= UI STYLE =================
 st.markdown("""
 <style>
-.stApp {background:#f4f7fe;}
-.stButton>button {
-    background: linear-gradient(45deg,#0066ff,#00c6ff);
-    color:white;border-radius:10px;font-weight:bold;
+.stApp {background:#eef2f7;}
+
+.card {
+    background:white;
+    padding:20px;
+    border-radius:15px;
+    box-shadow:0px 6px 20px rgba(0,0,0,0.1);
 }
-.card {background:white;padding:20px;border-radius:12px;
-box-shadow:0px 4px 12px rgba(0,0,0,0.1);}
+
+.result-box {
+    padding:25px;
+    border-radius:15px;
+    text-align:center;
+    font-size:22px;
+    font-weight:bold;
+}
+
+.fraud {background:#ff4d4d;color:white;}
+.safe {background:#28a745;color:white;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -82,137 +87,176 @@ st.button("🚪 Logout", on_click=lambda: st.session_state.update({"logged_in": 
 
 st.markdown("---")
 
-# ================= SINGLE =================
+# ================= INPUT =================
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Single Transaction")
+    st.subheader("💰 Transaction Details")
 
     amount = st.number_input("Amount", value=500.0)
-    time = st.number_input("Time", value=10000.0)
-    txn_type = st.selectbox("Type", ["Online", "POS", "ATM", "International"])
-    auto = st.checkbox("Auto features", True)
-
-    if st.button("Analyze", use_container_width=True):
-
-        features = [random.uniform(-3,3) for _ in range(28)] if auto else [0]*28
-        data = [time] + features + [amount]
-
-        try:
-            res = requests.post(API_URL, json={"data": data})
-            out = res.json()
-            if "body" in out: out = out["body"]
-
-            risk = min((amount/10000)*50 + (20 if txn_type=="International" else 10),100)
-
-            if "Fraud" in str(out) or risk > 60:
-                result = "Fraud"
-                st.error("🚨 Fraud")
-            else:
-                result = "Normal"
-                st.success("✅ Normal")
-
-            st.progress(risk/100)
-            st.write(f"Risk: {risk:.2f}%")
-
-            record = {
-                "Timestamp": datetime.now(),
-                "Mode": "Single",
-                "Amount": amount,
-                "Type": txn_type,
-                "Risk": risk,
-                "Result": result
-            }
-
-            st.session_state.history.append(record)
-            st.session_state.report_data.append(record)
-
-        except Exception as e:
-            st.error(e)
+    time = st.number_input("Time (seconds)", value=10000.0)  # ✅ ADDED BACK
+    txn_type = st.selectbox("Type", ["Online","POS","ATM","International"])
+    account_no = st.text_input("Account Number (10-12 digits)")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
 with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.subheader("Analytics")
+    st.subheader("🌐 Risk Factors")
 
-    if st.session_state.history:
-        df = pd.DataFrame(st.session_state.history)
-        st.bar_chart(df["Result"].value_counts())
-        st.line_chart(df["Risk"])
-    else:
-        st.info("No data yet")
+    location = st.selectbox("Location", ["Local","Different City","Different Country"])
+    device = st.selectbox("Device", ["Mobile","Laptop"])
+    ip_risk = st.selectbox("IP Risk", ["Low","Medium","High"])
+
+    txn_freq = st.number_input("Transactions (24 hrs)", value=2)
+    failed_logins = st.number_input("Failed Logins", value=0)
+
+    new_payee = st.checkbox("New Payee")
+    previous_fraud = st.checkbox("Previous Fraud")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-# ================= BULK =================
+# ================= RESET =================
+if st.button("🔄 Reset Accounts"):
+    st.session_state.accounts = {}
+    st.success("Accounts Reset")
+
+# ================= VALIDATION =================
+if account_no and (not account_no.isdigit() or not (10 <= len(account_no) <= 12)):
+    st.error("❌ Invalid Account Number")
+    st.stop()
+
+# ================= ANALYSIS =================
+if st.button("🚀 Analyze Transaction", use_container_width=True):
+
+    today = datetime.now()
+
+    acc = st.session_state.accounts.get(account_no, {
+        "last_used": today,
+        "txn_count": 0,
+        "fraud_count": 0,
+        "avg_amount": amount
+    })
+
+    risk = 0
+    breakdown = {}
+
+    # ================= LOGIC =================
+    if amount > 10000:
+        risk += 20
+        breakdown["High Amount"] = 20
+
+    if txn_type == "International":
+        risk += 20
+        breakdown["International"] = 20
+
+    if location == "Different Country":
+        risk += 20
+        breakdown["Location Risk"] = 20
+
+    if ip_risk == "High":
+        risk += 15
+        breakdown["High IP"] = 15
+    elif ip_risk == "Medium":
+        risk += 8
+        breakdown["Medium IP"] = 8
+
+    if txn_freq > 5:
+        risk += 10
+        breakdown["High Frequency"] = 10
+
+    if failed_logins > 3:
+        risk += 15
+        breakdown["Failed Logins"] = 15
+
+    if new_payee:
+        risk += 10
+        breakdown["New Payee"] = 10
+
+    if previous_fraud:
+        risk += 25
+        breakdown["Previous Fraud"] = 25
+
+    # Account behavior
+    if acc["fraud_count"] > 0:
+        risk += 30
+        breakdown["Account Fraud History"] = 30
+
+    if acc["txn_count"] > 5:
+        risk += 15
+        breakdown["Too Many Transactions"] = 15
+
+    if amount > acc["avg_amount"] * 3:
+        risk += 25
+        breakdown["Unusual Amount"] = 25
+
+    # OPTIONAL: time-based risk
+    if time < 1000:
+        risk += 10
+        breakdown["Unusual Time"] = 10
+
+    risk = min(risk, 100)
+
+    # ================= RESULT =================
+    if risk >= 50:
+        st.markdown('<div class="result-box fraud">🚨 FRAUD DETECTED</div>', unsafe_allow_html=True)
+        result = "Fraud"
+    else:
+        st.markdown('<div class="result-box safe">✅ SAFE TRANSACTION</div>', unsafe_allow_html=True)
+        result = "Not Fraud"
+
+    # ================= RISK METER =================
+    st.markdown("### 🎯 Risk Meter")
+    st.progress(risk/100)
+    st.write(f"Risk Score: {risk}%")
+
+    # ================= BREAKDOWN =================
+    st.markdown("### 🔍 Risk Breakdown")
+
+    if breakdown:
+        for k,v in breakdown.items():
+            st.write(f"{k} → +{v}")
+    else:
+        st.write("No risk factors")
+
+    # ================= CHART =================
+    if breakdown:
+        df = pd.DataFrame({
+            "Factor": breakdown.keys(),
+            "Value": breakdown.values()
+        }).set_index("Factor")
+
+        st.markdown("### 📊 Risk Contribution")
+        st.bar_chart(df)
+
+    # ================= UPDATE =================
+    acc["last_used"] = today
+    acc["txn_count"] += 1
+    acc["avg_amount"] = (acc["avg_amount"] + amount)/2
+
+    if result == "Fraud":
+        acc["fraud_count"] += 1
+
+    st.session_state.accounts[account_no] = acc
+
+    # ================= SAVE =================
+    st.session_state.history.append({
+        "Time": today,
+        "Account": account_no,
+        "Amount": amount,
+        "Input Time": time,
+        "Risk": risk,
+        "Result": result
+    })
+
+# ================= HISTORY =================
 st.markdown("---")
-st.subheader("Bulk Prediction")
+st.subheader("📊 Transaction History")
 
-file = st.file_uploader("Upload CSV", type=["csv"])
-
-if file:
-    df = pd.read_csv(file)
-    st.dataframe(df.head())
-
-    if st.button("Run Bulk"):
-        results = []
-
-        for _, row in df.iterrows():
-            data = row.tolist()
-            if len(data)==31:
-                data = data[:-1]
-
-            try:
-                res = requests.post(API_URL, json={"data":data})
-                out = res.json()
-                if "body" in out: out = out["body"]
-                results.append(out)
-            except:
-                results.append("Error")
-
-        df["Prediction"] = results
-        st.session_state.bulk_result = df
-
-        # Save bulk to report
-        for _, row in df.iterrows():
-            st.session_state.report_data.append({
-                "Timestamp": datetime.now(),
-                "Mode": "Bulk",
-                "Amount": row.get("Amount", 0),
-                "Type": "Bulk",
-                "Risk": "N/A",
-                "Result": row["Prediction"]
-            })
-
-# ================= SHOW BULK =================
-if st.session_state.bulk_result is not None:
-    st.success("Bulk Completed ✅")
-    st.dataframe(st.session_state.bulk_result)
-
-# ================= GLOBAL REPORT =================
-st.markdown("---")
-st.subheader("📥 Download Full Report")
-
-if st.session_state.report_data:
-
-    report_df = pd.DataFrame(st.session_state.report_data)
-    st.dataframe(report_df)
-
-    csv = report_df.to_csv(index=False).encode("utf-8")
-
-    st.download_button(
-        "📥 Download All Transactions Report",
-        data=csv,
-        file_name="full_fraud_report.csv",
-        mime="text/csv",
-        use_container_width=True
-    )
-
+if st.session_state.history:
+    df = pd.DataFrame(st.session_state.history)
+    st.dataframe(df)
+    st.bar_chart(df["Result"].value_counts())
 else:
-    st.info("No report data yet")
-
-# ================= FOOTER =================
-st.markdown("---")
-st.markdown("🚀 Production Ready Fraud Detection System")
+    st.info("No transactions yet")
