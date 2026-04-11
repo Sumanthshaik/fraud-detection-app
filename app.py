@@ -95,7 +95,7 @@ with col1:
     st.subheader("💰 Transaction Details")
 
     amount = st.number_input("Amount", value=500.0)
-    time = st.number_input("Time (seconds)", value=10000.0)  # ✅ ADDED BACK
+    time = st.number_input("Time (seconds)", value=10000.0)
     txn_type = st.selectbox("Type", ["Online","POS","ATM","International"])
     account_no = st.text_input("Account Number (10-12 digits)")
 
@@ -191,7 +191,6 @@ if st.button("🚀 Analyze Transaction", use_container_width=True):
         risk += 25
         breakdown["Unusual Amount"] = 25
 
-    # OPTIONAL: time-based risk
     if time < 1000:
         risk += 10
         breakdown["Unusual Time"] = 10
@@ -240,13 +239,21 @@ if st.button("🚀 Analyze Transaction", use_container_width=True):
 
     st.session_state.accounts[account_no] = acc
 
-    # ================= SAVE =================
+    # ================= SAVE FULL DATA =================
     st.session_state.history.append({
-        "Time": today,
-        "Account": account_no,
+        "Timestamp": today,
+        "Account Number": account_no,
         "Amount": amount,
-        "Input Time": time,
-        "Risk": risk,
+        "Time (Input)": time,
+        "Transaction Type": txn_type,
+        "Location": location,
+        "Device": device,
+        "IP Risk": ip_risk,
+        "Transactions (24 hrs)": txn_freq,
+        "Failed Logins": failed_logins,
+        "New Payee": new_payee,
+        "Previous Fraud": previous_fraud,
+        "Risk Score": risk,
         "Result": result
     })
 
@@ -258,5 +265,17 @@ if st.session_state.history:
     df = pd.DataFrame(st.session_state.history)
     st.dataframe(df)
     st.bar_chart(df["Result"].value_counts())
+
+    # ================= DOWNLOAD =================
+    csv = df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        "📥 Download Full Report",
+        data=csv,
+        file_name="fraud_report.csv",
+        mime="text/csv",
+        use_container_width=True
+    )
+
 else:
     st.info("No transactions yet")
